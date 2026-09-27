@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Magat River — Flood Status</title>
+<meta name="description" content="Current flood warning status for the Magat River, Luzon, Philippines.">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="public.css">
+</head>
+<body class="pub">
+
+<header class="pub-top">
+  <div>
+    <p class="pub-eyebrow">Flood warning</p>
+    <h1 id="pub-title">Magat River</h1>
+  </div>
+  <a class="pub-link" href="/">Technical view</a>
+</header>
+
+<!-- The status block is the page. Everything else is supporting detail. -->
+<section id="pub-status" class="pub-status" aria-live="polite">
+  <div class="pub-status-inner">
+    <p class="pub-level" id="pub-level">Checking…</p>
+    <p class="pub-meaning" id="pub-meaning"></p>
+    <p class="pub-action" id="pub-action"></p>
+  </div>
+</section>
+
+<main class="pub-main">
+
+  <section class="pub-card" id="pub-when-card" hidden>
+    <h2>When</h2>
+    <p class="pub-when" id="pub-when"></p>
+    <p class="pub-note muted" id="pub-issued"></p>
+  </section>
+
+  <section class="pub-card">
+    <h2>Where</h2>
+    <div id="pub-map" role="img" aria-label="Map of the Magat River basin and forecast flooding"></div>
+    <p class="pub-note muted">
+      Shaded areas show where water is expected at its deepest during this forecast.
+      Blue outline is the river basin.
+    </p>
+  </section>
+
+  <section class="pub-card" id="pub-places-card">
+    <h2>Locations</h2>
+    <ul class="pub-places" id="pub-places"></ul>
+  </section>
+
+  <section class="pub-card pub-advice">
+    <h2>What the levels mean</h2>
+    <dl class="pub-levels">
+      <dt class="lv-watch">Watch</dt>
+      <dd>River levels will rise well above normal. Stay alert, follow local advisories,
+          and check on anyone who would need help to move.</dd>
+      <dt class="lv-warning">Warning</dt>
+      <dd>Significant flooding is expected. Prepare to evacuate. Move people, vehicles
+          and livestock to higher ground.</dd>
+      <dt class="lv-emergency">Emergency</dt>
+      <dd>Severe flooding is expected. Act on your evacuation plan now. Do not wait for
+          water to arrive.</dd>
+    </dl>
+    <p class="pub-note">
+      <strong>This is a computer forecast, not an official evacuation order.</strong>
+      Always follow instructions from your LGU, PAGASA and local disaster office.
+    </p>
+  </section>
+
+  <section class="pub-card pub-caveat" id="pub-provisional" hidden>
+    <h2>Important</h2>
+    <p id="pub-provisional-text"></p>
+  </section>
+
+</main>
+
+<footer class="pub-foot">
+  <p class="muted small" id="pub-foot"></p>
+</footer>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script src="config.js"></script>
+<script src="public.js"></script>
+</body>
+</html>

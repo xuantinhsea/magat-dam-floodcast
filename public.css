@@ -1,0 +1,142 @@
+/*
+ * Public flood status page.
+ *
+ * A different audience from the operator dashboard, so a different design, not
+ * a hidden-columns variant of the same one:
+ *
+ *  - One answer, huge, above the fold. Someone opening this on a phone in bad
+ *    weather needs the level and the action, not a chart.
+ *  - Single column throughout. No layout that reflows into something unfamiliar
+ *    between phone and desktop.
+ *  - Large type and generous touch targets; assume poor light, wet hands, an
+ *    old device and a slow connection.
+ *  - Every claim carries its time. A flood page with no timestamp is worse than
+ *    no page, because stale reassurance is dangerous.
+ */
+
+.pub {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 0 0 40px;
+  font-size: 16px;
+}
+
+.pub-top {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; padding: 16px 18px;
+}
+.pub-eyebrow {
+  margin: 0; font-size: 0.74rem; font-weight: 650;
+  text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-muted);
+}
+.pub-top h1 { font-size: 1.35rem; margin: 2px 0 0; }
+.pub-link {
+  font-size: 0.82rem; color: var(--text-muted); text-decoration: none;
+  border: 1px solid var(--border); border-radius: 999px; padding: 6px 12px;
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- status -- */
+
+/* Neutral until a level is known. Green is the all-clear colour, so it must
+   never be what a page shows while loading or when it has no forecast. */
+.pub-status {
+  margin: 4px 14px 18px;
+  border-radius: 16px;
+  color: #fff;
+  background: var(--text-muted);
+  box-shadow: var(--shadow);
+}
+.pub-status.lv-none      { background: var(--none); }
+.pub-status.lv-watch     { background: var(--watch); }
+.pub-status.lv-warning   { background: var(--warning); }
+.pub-status.lv-emergency { background: var(--emergency); }
+
+.pub-status-inner { padding: 26px 22px; }
+
+.pub-level {
+  margin: 0;
+  font-size: clamp(2.1rem, 9vw, 3.1rem);
+  font-weight: 800;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
+}
+.pub-meaning { margin: 12px 0 0; font-size: 1.12rem; font-weight: 600; }
+.pub-action  { margin: 10px 0 0; font-size: 1.02rem; opacity: 0.95; }
+
+/* An emergency should not be able to blend into the page furniture. */
+.pub-status.lv-emergency { outline: 4px solid var(--emergency); outline-offset: 3px; }
+
+/* ----------------------------------------------------------------- cards -- */
+
+.pub-main { display: grid; gap: 14px; padding: 0 14px; }
+
+.pub-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px 18px;
+}
+.pub-card h2 {
+  font-size: 0.76rem; letter-spacing: 0.08em; margin: 0 0 10px;
+}
+
+.pub-when { margin: 0; font-size: 1.25rem; font-weight: 700; }
+.pub-note { margin: 10px 0 0; font-size: 0.86rem; line-height: 1.5; }
+
+#pub-map { height: 300px; border-radius: 10px; overflow: hidden; }
+
+.pub-places { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.pub-places li {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 12px 14px; border-radius: 10px;
+  background: var(--surface-2); border-left: 5px solid var(--text-muted);
+}
+.pub-places li.lv-none      { border-left-color: var(--none); }
+.pub-places li.lv-watch     { border-left-color: var(--watch); }
+.pub-places li.lv-warning   { border-left-color: var(--warning); }
+.pub-places li.lv-emergency { border-left-color: var(--emergency); }
+.pub-place-name { font-weight: 650; }
+.pub-place-when { font-size: 0.82rem; color: var(--text-muted); }
+
+/* Level chips repeat the colour AND the word, so the meaning survives
+   colour-blindness, greyscale printing and a cracked screen. */
+.pub-chip {
+  flex: none; padding: 5px 12px; border-radius: 999px;
+  font-size: 0.74rem; font-weight: 700; letter-spacing: 0.05em;
+  text-transform: uppercase; color: #fff; background: var(--text-muted);
+}
+.pub-chip.lv-none      { background: var(--none); }
+.pub-chip.lv-watch     { background: var(--watch); }
+.pub-chip.lv-warning   { background: var(--warning); }
+.pub-chip.lv-emergency { background: var(--emergency); }
+
+.pub-levels { margin: 0; display: grid; gap: 4px 12px; }
+.pub-levels dt {
+  font-weight: 700; margin-top: 10px;
+  display: inline-block; padding: 3px 10px; border-radius: 999px;
+  color: #fff; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.05em;
+  justify-self: start;
+}
+.pub-levels dt.lv-watch     { background: var(--watch); }
+.pub-levels dt.lv-warning   { background: var(--warning); }
+.pub-levels dt.lv-emergency { background: var(--emergency); }
+.pub-levels dd { margin: 4px 0 0; font-size: 0.92rem; line-height: 1.5; }
+
+.pub-advice .pub-note {
+  border-top: 1px solid var(--border); padding-top: 12px; margin-top: 16px;
+}
+
+.pub-caveat {
+  background: color-mix(in srgb, var(--watch) 12%, var(--surface));
+  border-color: color-mix(in srgb, var(--watch) 34%, var(--border));
+}
+.pub-caveat p { margin: 0; font-size: 0.9rem; line-height: 1.55; }
+
+.pub-foot { padding: 20px 18px 0; text-align: center; }
+
+@media (max-width: 420px) {
+  .pub-status-inner { padding: 22px 18px; }
+  .pub-card { padding: 14px 15px; }
+}

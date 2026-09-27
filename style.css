@@ -1,0 +1,749 @@
+/*
+ * RRI flood warning dashboard.
+ *
+ * Design constraints specific to this being an operational warning screen:
+ *  - Alert colour is the loudest thing on the page and is never used
+ *    decoratively, so an emergency state cannot be confused with chrome.
+ *  - Alert state is carried by colour AND text AND a number or shape, so it
+ *    survives colour-blindness and greyscale printing.
+ *  - The level palette follows the Philippine yellow/orange/red convention
+ *    (PAGASA rainfall and flood advisories), so it reads the way local
+ *    responders already read colour.
+ *  - One window, no page scroll: the map is the canvas and the panels float on
+ *    it, so status, map, hydrograph and hyetograph are all in view at once on a
+ *    duty desk. On a phone the same pieces stack and scroll instead.
+ */
+
+:root {
+  color-scheme: light dark;
+
+  --bg: #f5f6f8;
+  --surface: #ffffff;
+  --surface-2: #f0f2f5;
+  --border: #dfe3e8;
+  --text: #16191d;
+  --text-muted: #5c6570;
+
+  --none: #4b8a5a;
+  --watch: #b8860b;
+  --warning: #d2691e;
+  --emergency: #c02626;
+
+  --accent: #1c6fb5;
+  /* The map's current hour on the charts and the band. Distinct from the
+     forecast line (accent) and from every level colour. */
+  --cursor: #7a3db8;
+  /* Catchment-rain bars on the station chart: a quiet steel blue, drawn
+     translucent and behind the hydrograph, so rain reads as context for the
+     flow rather than as data competing with it. */
+  --rain-bar: #5b7fa6;
+  /* Rivers are reference geometry, not data, and they are the one line drawn
+     across BOTH data layers -- so they must not read as a class of either. Blue
+     is spoken for (the depth ramp, and rainfall's 1-5 mm/h step), which leaves
+     a neutral slate. It also fixes a contrast failure: the old #6ba3c9 managed
+     1.73:1 against the filtered basemap in light mode and 1.36:1 in dark, i.e.
+     the network was barely there. Now 4.68:1 and 2.69:1. */
+  --river: #4a5764;
+  --radius: 10px;
+  --shadow: 0 1px 2px rgb(16 24 40 / 6%), 0 4px 12px rgb(16 24 40 / 5%);
+  --float-shadow: 0 2px 6px rgb(16 24 40 / 10%), 0 10px 28px rgb(16 24 40 / 12%);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14171c;
+    --surface: #1b1f26;
+    --surface-2: #232830;
+    --border: #2f353f;
+    --text: #e8eaed;
+    --text-muted: #9aa3af;
+
+    --none: #64b478;
+    --watch: #d9a520;
+    --warning: #e8873c;
+    --emergency: #e4534b;
+    --accent: #55a3e0;
+    --cursor: #b58ae6;
+    --rain-bar: #7fa3cc;
+    --river: #9fb2c2;
+    --shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 4px 14px rgb(0 0 0 / 30%);
+    --float-shadow: 0 2px 8px rgb(0 0 0 / 45%), 0 10px 28px rgb(0 0 0 / 40%);
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  -webkit-text-size-adjust: 100%;
+}
+
+h1, h2, h3 { margin: 0; font-weight: 600; }
+h1 { font-size: 1.02rem; letter-spacing: -0.01em; }
+h2 { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); }
+h3 { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
+.muted { color: var(--text-muted); }
+.small { font-size: 0.8rem; }
+a { color: var(--accent); }
+[hidden] { display: none !important; }
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+/* ------------------------------------------------------- page skeleton -- */
+
+/* Desktop: the page is exactly one window tall and never scrolls. The map
+   takes whatever height is left after the fixed-height strips. */
+body.ops {
+  height: 100vh;
+  height: 100dvh;
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+.ops > * { flex: none; }
+.ops > .canvas { flex: 1; min-height: 0; }
+
+/* ---------------------------------------------------------------- topbar -- */
+
+.topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px 16px; flex-wrap: wrap;
+  padding: 7px 14px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  position: relative; z-index: 1000;
+}
+
+.brand { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1 1 280px; }
+.brand-text { min-width: 0; }
+.brand p {
+  margin: 1px 0 0; font-size: 0.76rem;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.mark {
+  width: 28px; height: 28px; border-radius: 8px; flex: none;
+  background: linear-gradient(150deg, var(--accent), #10456f);
+}
+
+.topbar-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+.cycle-picker { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.cycle-picker label { font-size: 0.76rem; color: var(--text-muted); }
+.cycle-age { font-size: 0.76rem; font-variant-numeric: tabular-nums; }
+.cycle-age.is-stale { color: var(--emergency); font-weight: 650; }
+
+select, .btn {
+  font: inherit; font-size: 0.84rem;
+  padding: 5px 9px;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  max-width: 100%;
+}
+.btn { cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; }
+.btn:hover { border-color: var(--accent); }
+.btn-sm { font-size: 0.76rem; padding: 3px 8px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Alert pill: colour + label together, never colour alone. */
+.pill {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 5px 13px; border-radius: 999px;
+  font-weight: 650; font-size: 0.78rem;
+  text-transform: uppercase; letter-spacing: 0.05em;
+  color: #fff; background: var(--text-muted);
+  white-space: nowrap;
+}
+.pill::before {
+  content: ""; width: 8px; height: 8px; border-radius: 50%;
+  background: currentColor; flex: none;
+}
+.pill-none      { background: var(--none); }
+.pill-watch     { background: var(--watch); }
+.pill-warning   { background: var(--warning); }
+.pill-emergency { background: var(--emergency); }
+.card .pill, .pop .pill { padding: 2px 9px; font-size: 0.68rem; }
+
+/* --------------------------------------------------------------- banners -- */
+
+.banner {
+  padding: 6px 14px;
+  background: color-mix(in srgb, var(--watch) 14%, var(--surface));
+  border-bottom: 1px solid color-mix(in srgb, var(--watch) 35%, var(--border));
+  font-size: 0.8rem;
+}
+.banner-error {
+  background: color-mix(in srgb, var(--emergency) 14%, var(--surface));
+  border-bottom-color: color-mix(in srgb, var(--emergency) 35%, var(--border));
+  font-weight: 550;
+}
+.banner-info {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  border-bottom-color: color-mix(in srgb, var(--accent) 30%, var(--border));
+}
+/* Long standing notices take one line; the full text is a click away. The
+   bold lead ("Provisional thresholds.") always shows. */
+.banner-clamp {
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer;
+}
+.banner-clamp.is-open { white-space: normal; }
+
+.toast {
+  position: fixed; right: 16px; bottom: 16px; z-index: 2000;
+  display: flex; align-items: center; gap: 10px;
+  max-width: min(460px, calc(100vw - 32px));
+  padding: 12px 14px;
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-left: 4px solid var(--accent);
+  border-radius: 10px; box-shadow: var(--float-shadow);
+  font-size: 0.86rem;
+}
+.toast-close {
+  font: inherit; font-size: 1.1rem; line-height: 1; cursor: pointer;
+  background: none; border: 0; color: var(--text-muted); padding: 2px 4px;
+}
+
+/* ------------------------------------------------------------- situation -- */
+
+.situation {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.sit-item {
+  display: flex; flex-direction: column; gap: 0; min-width: 0;
+  padding: 5px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border); border-radius: 8px;
+}
+.sit-k { font-size: 0.64rem; font-weight: 650; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
+.sit-v { font-size: 0.92rem; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sit-s {
+  font-size: 0.72rem; color: var(--text-muted); line-height: 1.35;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.sit-s.is-caution { color: var(--watch); font-weight: 600; }
+
+/* The status tile is the one place the whole basin's level is shown large.
+   Neutral until a level is known: green is the all-clear colour and must never
+   be what an empty, loading or disconnected screen shows. */
+.sit-status { border-left: 5px solid var(--text-muted); }
+.sit-status.lv-none      { border-left-color: var(--none); }
+.sit-status.lv-watch     { border-left-color: var(--watch); }
+.sit-status.lv-warning   { border-left-color: var(--warning); }
+.sit-status.lv-emergency {
+  border-left-color: var(--emergency);
+  background: color-mix(in srgb, var(--emergency) 8%, var(--surface));
+}
+.sit-status.lv-watch .sit-v     { color: var(--watch); }
+.sit-status.lv-warning .sit-v   { color: var(--warning); }
+.sit-status.lv-emergency .sit-v { color: var(--emergency); }
+
+.trend-up   { color: var(--warning); }
+.trend-down { color: var(--none); }
+.trend-flat { color: var(--text-muted); }
+
+/* ---------------------------------------------------------------- canvas -- */
+
+/* Panel widths are variables so the map furniture (Leaflet controls, toolbar,
+   legend) can keep clear of whichever panels are open. */
+.canvas {
+  --rail-l: 340px;
+  --rail-r: 420px;
+  position: relative;
+  background: var(--surface-2);
+}
+.canvas.l-collapsed { --rail-l: 44px; }
+.canvas.r-collapsed { --rail-r: 44px; }
+@media (max-width: 1300px) {
+  .canvas { --rail-l: 300px; --rail-r: 370px; }
+}
+
+#map { position: absolute; inset: 0; background: var(--surface-2); }
+
+.ops .leaflet-top.leaflet-left     { margin-left: calc(var(--rail-l) + 12px); }
+.ops .leaflet-top.leaflet-right,
+.ops .leaflet-bottom.leaflet-right { margin-right: calc(var(--rail-r) + 12px); }
+.ops .leaflet-bottom.leaflet-left  { margin-left: calc(var(--rail-l) + 12px); }
+
+/* The overlay ramps were validated against a MUTED basemap, not raw OSM: a
+   full-colour basemap has greens, blues and oranges of its own that compete
+   with the data. Desaturating the tiles is what makes the validated contrast
+   figures true on screen. */
+#map.has-overlay .leaflet-tile { filter: saturate(0.28) brightness(1.04); }
+
+/* Dark mode has to push the ground to an EXTREME, not merely dim it. At the
+   previous brightness(0.62) the basemap sat at mid grey, and a mid grey ground
+   cannot support a monotone ramp at both ends -- the depth ramp scored 1.07:1
+   at its worst against it. Darkening the ground to 0.42 lets the ramp run
+   upward in lightness and clear 2:1 at every step. The rainfall scale, which is
+   fixed by convention and spans the full lightness range, is no worse off: it
+   passes three of six classes on either ground, only different ones. */
+@media (prefers-color-scheme: dark) {
+  #map.has-overlay .leaflet-tile { filter: saturate(0.3) brightness(0.42); }
+}
+
+/* Rainfall is served at its own grid resolution and blown up to map scale by
+   the browser. Default bilinear scaling would smooth 32x39 cells into a
+   gradient, showing structure between cells that the forcing data does not
+   have. Nearest-neighbour keeps one cell = one value, visibly. crisp-edges
+   first as the fallback keyword, pixelated last so browsers supporting both
+   land on pixelated. */
+.leaflet-image-layer.overlay-grid {
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: crisp-edges;
+  image-rendering: pixelated;
+}
+
+.leaflet-container { font: inherit; background: var(--surface-2); }
+.leaflet-control-layers { background: var(--surface); color: var(--text); border-radius: 8px; }
+.leaflet-control-layers-expanded { padding: 8px 12px; font-size: 0.84rem; }
+
+/* Floating map toolbar: layer choice, window, opacity. */
+.map-toolbar {
+  position: absolute; z-index: 750; top: 10px;
+  left: calc(var(--rail-l) + 58px); right: calc(var(--rail-r) + 58px);
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  pointer-events: none;
+}
+.map-toolbar > * { pointer-events: auto; box-shadow: var(--float-shadow); }
+.map-toolbar select { background: var(--surface); }
+
+.opacity-ctl {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px; border-radius: 8px;
+  background: var(--surface); border: 1px solid var(--border);
+}
+.opacity-ctl input { width: 80px; accent-color: var(--accent); }
+
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--surface); }
+.seg-btn {
+  font: inherit; font-size: 0.8rem; cursor: pointer;
+  padding: 5px 11px; border: 0;
+  background: var(--surface); color: var(--text-muted);
+}
+.seg-btn.is-active { background: var(--accent); color: #fff; }
+
+/* Map legend: floats bottom-left, clear of the left panel. */
+.map-legend {
+  position: absolute; z-index: 750; bottom: 10px;
+  left: calc(var(--rail-l) + 12px);
+  max-width: calc(100% - var(--rail-l) - var(--rail-r) - 160px);
+  padding: 5px 10px; border-radius: 8px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  border: 1px solid var(--border); box-shadow: var(--float-shadow);
+}
+.legend {
+  display: flex; flex-wrap: wrap; gap: 2px 12px;
+  font-size: 0.72rem; color: var(--text-muted);
+}
+.legend span { display: inline-flex; align-items: center; gap: 5px; }
+.legend i { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+.legend-stations { margin-top: 3px; }
+.legend-note { font-style: italic; }
+
+/* Station markers: level colour AND level number, white ring for contrast on
+   any basemap. Kept small -- seven points on a basin 60 km across crowd each
+   other at basin zoom -- and the selected one gets a second, accent ring. */
+.stn-icon { background: none; border: 0; }
+.stn {
+  display: grid; place-items: center;
+  width: 100%; height: 100%; border-radius: 50%;
+  font: 700 10px/1 system-ui, sans-serif; color: #fff;
+  background: var(--none);
+  border: 1.5px solid #fff;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 45%);
+}
+.stn.lv-watch     { background: var(--watch); }
+.stn.lv-warning   { background: var(--warning); }
+.stn.lv-emergency { background: var(--emergency); }
+.stn.is-selected  { box-shadow: 0 0 0 2.5px var(--accent), 0 1px 3px rgb(0 0 0 / 50%); }
+.stn-sm {
+  display: inline-grid; width: 14px; height: 14px; font-size: 9px;
+  border-width: 1.5px; margin-right: 4px; vertical-align: -3px;
+}
+
+.stn-label { background: none; border: 0; }
+.stn-label span {
+  display: inline-block; white-space: nowrap;
+  font: 700 9.5px/1 system-ui, sans-serif; color: #111;
+  padding: 1px 3px; border-radius: 3px;
+  background: rgb(255 255 255 / 80%);
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 10%);
+}
+@media (prefers-color-scheme: dark) {
+  .stn-label span { color: #eee; background: rgb(20 23 28 / 80%); box-shadow: 0 0 0 1px rgb(255 255 255 / 12%); }
+}
+
+/* ----------------------------------------------------------------- rails -- */
+
+.rail {
+  position: absolute; z-index: 800; top: 10px; bottom: 10px;
+  display: flex; flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: var(--float-shadow);
+  overflow: hidden;
+}
+.rail-left  { left: 10px;  width: var(--rail-l); }
+.rail-right { right: 10px; width: var(--rail-r); }
+
+.rail-head {
+  flex: none; display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 7px 8px 7px 12px; border-bottom: 1px solid var(--border);
+}
+.rail-left .rail-head { padding-left: 8px; }
+.rail-tabs .seg-btn { font-size: 0.74rem; padding: 4px 9px; text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; }
+.rail-toggle {
+  font: inherit; font-size: 1rem; line-height: 1; cursor: pointer; flex: none;
+  width: 26px; height: 26px; border-radius: 7px;
+  border: 1px solid var(--border); background: var(--surface-2); color: var(--text-muted);
+}
+.rail-toggle:hover { border-color: var(--accent); color: var(--text); }
+
+.rail-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.rail-note { margin: 0; padding: 8px 12px 0; }
+
+.rail.is-collapsed .rail-head { padding: 7px 8px; justify-content: center; border-bottom: 0; }
+.rail.is-collapsed .rail-head > :not(.rail-toggle),
+.rail.is-collapsed .rail-body { display: none; }
+
+/* ------------------------------------------------------------------ band -- */
+
+.band {
+  height: 150px;
+  display: grid; grid-template-columns: auto minmax(0, 1fr) 260px;
+  /* One row exactly the band's height: content can never push the page. */
+  grid-template-rows: minmax(0, 1fr);
+  overflow: hidden;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+.band-controls {
+  display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 8px;
+  padding: 8px 10px; border-right: 1px solid var(--border);
+}
+.tl-buttons { display: flex; align-items: center; gap: 5px; }
+.band-controls select { padding: 3px 6px; font-size: 0.76rem; }
+.band.is-static .tl-buttons, .band.is-static .band-controls select { opacity: 0.4; pointer-events: none; }
+
+.icon-btn {
+  font: inherit; cursor: pointer; flex: none;
+  width: 30px; height: 30px; border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface-2); color: var(--text);
+  display: grid; place-items: center; font-size: 1rem; line-height: 1;
+}
+.icon-btn-main { width: 36px; height: 36px; background: var(--accent); color: #fff; border-color: var(--accent); font-size: 0.86rem; }
+.icon-btn:hover { border-color: var(--accent); }
+
+.band-track { position: relative; min-width: 0; }
+#band-canvas { position: absolute; inset: 0; width: 100%; height: 100%; cursor: crosshair; touch-action: none; }
+
+.band-read {
+  display: flex; flex-direction: column; justify-content: center; gap: 0;
+  padding: 6px 12px; border-left: 1px solid var(--border);
+  font-size: 0.78rem; line-height: 1.3; min-width: 0; min-height: 0; overflow: hidden;
+}
+.band-read strong { font-variant-numeric: tabular-nums; font-size: 0.86rem; }
+.band-read #frame-lead { font-size: 0.72rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.band-values {
+  display: grid; grid-template-columns: auto 1fr; gap: 0 10px; margin: 3px 0 0;
+  font-variant-numeric: tabular-nums;
+}
+.band-values dt { color: var(--text-muted); font-size: 0.7rem; line-height: 1.45; }
+.band-values dd { margin: 0; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.35; }
+.band-values .pill { padding: 0 7px; font-size: 0.62rem; margin-left: 4px; vertical-align: 1px; }
+.band-values .pill::before { width: 6px; height: 6px; }
+
+/* ---------------------------------------------------------------- matrix -- */
+
+.matrix-wrap { overflow-x: auto; padding: 8px 12px 12px; }
+.matrix { border-collapse: separate; border-spacing: 2px; font-size: 0.7rem; }
+.matrix th { font-weight: 600; color: var(--text-muted); white-space: nowrap; }
+.mx-day { text-align: left; padding: 0 2px; border-bottom: 1px solid var(--border); font-size: 0.64rem; }
+.mx-hr { font-weight: 500; font-size: 0.6rem; min-width: 16px; }
+.mx-stn { text-align: left; padding-right: 6px; position: sticky; left: 0; background: var(--surface); z-index: 1; }
+.mx-corner { font-size: 0.6rem; vertical-align: bottom; }
+.mx-id { font-weight: 700; color: var(--text); }
+.mx-cell {
+  width: 16px; height: 18px; text-align: center;
+  font-weight: 700; color: #fff; cursor: pointer;
+  border-radius: 3px; background: var(--surface-2);
+}
+.mx-cell.lv-none      { background: color-mix(in srgb, var(--none) 16%, var(--surface-2)); }
+.mx-cell.lv-watch     { background: var(--watch); }
+.mx-cell.lv-warning   { background: var(--warning); }
+.mx-cell.lv-emergency { background: var(--emergency); }
+.mx-cell:hover { outline: 2px solid var(--text); outline-offset: -1px; }
+.matrix .is-now { box-shadow: inset 0 0 0 2px var(--cursor); }
+.matrix th.is-now { color: var(--cursor); box-shadow: none; }
+.matrix tr[data-station] { cursor: pointer; }
+.matrix tr.is-selected .mx-id { color: var(--accent); text-decoration: underline; }
+.matrix tr:focus-visible { outline: 2px solid var(--accent); }
+
+/* ---------------------------------------------------------------- cards -- */
+
+/* minmax(0, 1fr): without it the grid column grows to the longest unwrapped
+   line and pushes each card's level pill out of the panel. */
+.cards { padding: 8px 10px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
+.cards-note { margin: 0; }
+
+.card {
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--text-muted);
+  border-radius: 8px;
+  padding: 7px 9px;
+  background: var(--surface-2);
+  cursor: pointer;
+}
+.card:hover { border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
+.card.lv-none      { border-left-color: var(--none); }
+.card.lv-watch     { border-left-color: var(--watch); }
+.card.lv-warning   { border-left-color: var(--warning); }
+.card.lv-emergency { border-left-color: var(--emergency); }
+
+.card-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.card-name {
+  font-weight: 600; font-size: 0.84rem; min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.card-id {
+  font-size: 0.66rem; font-weight: 700; letter-spacing: 0.03em;
+  padding: 0 5px; border-radius: 4px; margin-right: 3px;
+  background: var(--surface); border: 1px solid var(--border);
+}
+
+.card-body { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+.card-facts { flex: 1; min-width: 0; font-size: 0.74rem; line-height: 1.45; font-variant-numeric: tabular-nums; }
+.card-facts > div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card-facts b { font-size: 0.82rem; }
+
+.trend { font-size: 0.7rem; font-weight: 700; white-space: nowrap; }
+
+.spark { width: 96px; height: 32px; flex: none; overflow: visible; }
+.spark-line { fill: none; stroke: var(--accent); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.spark-th { stroke-width: 1; stroke-dasharray: 3 2; vector-effect: non-scaling-stroke; }
+.spark-watch     { stroke: var(--watch); }
+.spark-warning   { stroke: var(--warning); }
+.spark-emergency { stroke: var(--emergency); }
+
+/* Selected station reads as selected in the list too, so the map and the
+   panels never disagree about what is being shown. */
+.card.is-selected { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+/* A station whose levels are provisional says so on its own card, not only in
+   the page-wide banner: with a mix of validated and provisional stations, one
+   banner cannot tell you which is which. */
+.card-flag {
+  display: inline-block;
+  font-size: 0.62rem; font-weight: 650; letter-spacing: 0.04em; text-transform: uppercase;
+  padding: 0 6px; border-radius: 999px; margin-left: 2px;
+  color: var(--watch); border: 1px solid color-mix(in srgb, var(--watch) 45%, transparent);
+}
+
+/* -------------------------------------------------------- station detail -- */
+
+.detail-top { display: flex; gap: 6px; align-items: center; padding: 10px 12px 0; }
+.detail-top select { flex: 1; min-width: 0; }
+
+.facts {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 12px; margin: 0; padding: 8px 12px 0;
+}
+.facts div { min-width: 0; }
+.facts dt { font-size: 0.64rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.facts dd { margin: 1px 0 0; font-size: 0.8rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+.chart-opts {
+  display: flex; align-items: center; gap: 4px 12px; flex-wrap: wrap;
+  padding: 6px 12px 0; font-size: 0.76rem; color: var(--text-muted);
+}
+.chart-opts label { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
+.chart-opts input { accent-color: var(--accent); }
+.chart-opts .btn { margin-left: auto; }
+
+.chart-fig { margin: 0; }
+.chart-fig figcaption {
+  display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 8px;
+  padding: 8px 12px 0; font-size: 0.78rem; font-weight: 600; color: var(--text);
+}
+.chart-fig figcaption .unit {
+  font-weight: 400; color: var(--text-muted); font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+}
+.chart-caption { padding: 6px 12px 0; margin: 0; font-size: 0.74rem; line-height: 1.4; }
+/* The threshold basis is one line until clicked, so both charts fit the panel. */
+#station-basis { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+#station-basis.is-open { white-space: normal; }
+
+/* Chart heights follow the window, so on a 900-px screen both the discharge
+   and the water-level chart sit in the panel without scrolling it. */
+.chart-wrap { padding: 4px 10px 2px; height: 200px; position: relative; }
+.chart-wrap-lg { height: clamp(150px, 19vh, 260px); }
+.chart-wrap-sm { height: clamp(88px, 11vh, 150px); }
+.chart-note { padding: 2px 12px 8px; margin: 0; font-size: 0.72rem; line-height: 1.4; }
+#chart-q, #chart-h { cursor: crosshair; }
+
+.detail-sec { border-top: 1px solid var(--border); padding: 8px 0 4px; }
+.detail-sec > h3, .detail-sec summary { padding: 0 12px; }
+.detail-sec summary { cursor: pointer; list-style: revert; }
+.detail-sec summary h3 { display: inline; padding: 0; }
+.evo-summary { margin: 4px 0 0; padding: 0 12px; font-size: 0.8rem; line-height: 1.45; }
+
+.rail-about { padding: 10px 12px 12px; margin: 0; border-top: 1px solid var(--border); line-height: 1.5; }
+@media (hover: none) { .kbd-hint { display: none; } }
+
+.empty { padding: 18px 12px; text-align: center; color: var(--text-muted); font-size: 0.84rem; }
+
+/* ---------------------------------------------------------- verification -- */
+
+.verif { padding: 6px 12px 4px; }
+.verif-summary { margin: 0 0 8px; font-size: 0.82rem; }
+
+.table-wrap { overflow-x: auto; }
+
+.tbl { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+.tbl th, .tbl td { padding: 5px 6px; border-bottom: 1px solid var(--border); text-align: left; }
+.tbl th { color: var(--text-muted); font-weight: 600; font-size: 0.7rem;
+          text-transform: uppercase; letter-spacing: 0.04em; }
+.tbl .num { text-align: right; font-variant-numeric: tabular-nums; }
+.tbl .row-total td { font-weight: 650; border-top: 1px solid var(--border); }
+
+
+/* Landmark pin: hollow diamond, deliberately unlike the filled circles used
+   for forecast stations, so orientation points never read as warnings. */
+.landmark-pin { background: none; border: 0; }
+.landmark-dot {
+  display: block; width: 100%; height: 100%;
+  background: var(--surface);
+  border: 2px solid var(--text-muted);
+  transform: rotate(45deg);
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 70%);
+}
+
+
+/* ---------------------------------------------------------- map popups -- */
+
+.leaflet-popup-content-wrapper {
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: var(--shadow);
+}
+.leaflet-popup-tip { background: var(--surface); border: 1px solid var(--border); }
+.leaflet-popup-content { margin: 12px 14px; }
+
+.pop-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.pop-now { margin: 8px 0 0; font-size: 0.8rem; }
+.pop-grid {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px; margin: 10px 0 0;
+}
+.pop-grid dt { color: var(--text-muted); font-size: 0.68rem;
+               text-transform: uppercase; letter-spacing: 0.04em; }
+.pop-grid dd { margin: 1px 0 0; font-weight: 650; font-variant-numeric: tabular-nums; }
+.pop-th { margin: 10px 0 0; font-size: 0.76rem; color: var(--text-muted); }
+
+.pop-btn {
+  margin-top: 12px; width: 100%; cursor: pointer;
+  font: inherit; font-size: 0.82rem; font-weight: 600;
+  padding: 7px 10px; border-radius: 8px;
+  border: 1px solid var(--accent); background: var(--accent); color: #fff;
+}
+.pop-btn:hover { filter: brightness(1.08); }
+
+
+/* Threshold provenance, stated beside the thresholds themselves. */
+.basis-provisional { color: var(--watch); font-weight: 500; }
+.basis-derived     { color: var(--none); font-weight: 500; }
+
+
+/* Short desktop windows (a 900-px laptop): tighten the fixed strips so the map
+   and panels keep the height. */
+@media (min-width: 961px) and (max-height: 960px) {
+  .band { height: 132px; }
+  .situation { padding: 6px 12px; }
+  .sit-s { -webkit-line-clamp: 1; }
+  .cards { gap: 5px; padding: 6px 8px; }
+  .card { padding: 5px 9px; }
+  .card-body { margin-top: 2px; }
+  .card-facts { line-height: 1.32; }
+  .card .pill { padding: 1px 8px; }
+  .spark { height: 28px; }
+  .cards-note { font-size: 0.68rem; }
+}
+
+/* ------------------------------------------------- phone: stack, scroll -- */
+
+/* Below tablet width one locked window hides more than it shows, so the same
+   pieces stack in reading order -- toolbar, map, legend, band, status, station
+   -- and the page scrolls. `display: contents` lets the canvas's children join
+   that order alongside the band, which lives outside it. */
+@media (max-width: 960px) {
+  body.ops { height: auto; overflow: visible; }
+  .ops > .canvas { display: contents; }
+  .map-toolbar { order: 1; position: static; padding: 8px 12px 0; pointer-events: auto; }
+  .map-toolbar > * { box-shadow: none; }
+  #map { order: 2; position: relative; height: 56vh; min-height: 300px; }
+  .map-legend { order: 3; position: static; max-width: none; margin: 8px 12px 0; box-shadow: none; }
+  .band {
+    order: 4; height: auto; margin-top: 8px;
+    grid-template-columns: auto minmax(0, 1fr); grid-template-rows: 124px auto;
+  }
+  .band-read { grid-column: 1 / -1; border-left: 0; border-top: 1px solid var(--border); padding: 6px 12px; }
+  .band-values { grid-template-columns: repeat(3, auto 1fr); }
+  .rail { position: static; width: auto; margin: 10px 12px 0; box-shadow: var(--shadow); }
+  .rail-left { order: 5; }
+  .rail-right { order: 6; margin-bottom: 16px; }
+  .rail-toggle { display: none; }
+  .ops .leaflet-top.leaflet-left, .ops .leaflet-top.leaflet-right,
+  .ops .leaflet-bottom.leaflet-right, .ops .leaflet-bottom.leaflet-left { margin: 0; }
+  .situation { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .situation .sit-status { grid-column: 1 / -1; }
+  .topbar { position: sticky; top: 0; }
+}
+@media (max-width: 960px) and (min-width: 641px) {
+  .situation { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .situation .sit-status { grid-column: auto; }
+}
+
+
+/* ----------------------------------------------------------------- print -- */
+
+/* Ctrl+P is a situation report: status, map, cards and the selected station,
+   on white, without controls, in a plain flowing layout. Alert colours are
+   kept -- they are the content -- and every level also prints as a word or a
+   number. */
+@media print {
+  :root {
+    --bg: #fff; --surface: #fff; --surface-2: #f6f7f9; --border: #ccd2d9;
+    --text: #000; --text-muted: #444; --shadow: none; --float-shadow: none;
+  }
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body { font-size: 11px; }
+  body.ops { height: auto; overflow: visible; display: block; }
+  .ops > .canvas { display: block; position: static; }
+  #map { position: relative; height: 420px; }
+  .rail { position: static; width: auto; margin: 8px 0; break-inside: avoid; }
+  .rail-body { overflow: visible; }
+  .map-legend { position: static; max-width: none; margin: 6px 0; }
+  .band { height: 140px; }
+  .topbar-right > :not(.cycle-picker):not(#status-pill),
+  .cycle-picker select, .map-toolbar, .band-controls, .chart-opts, .detail-top,
+  .rail-toggle, .rail-tabs, .toast, .leaflet-control-container, .kbd-hint,
+  #old-cycle-banner .btn { display: none !important; }
+  .banner-clamp { white-space: normal; }
+  .ops .leaflet-top.leaflet-left, .ops .leaflet-top.leaflet-right,
+  .ops .leaflet-bottom.leaflet-right, .ops .leaflet-bottom.leaflet-left { margin: 0; }
+}
