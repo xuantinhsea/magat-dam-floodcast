@@ -1,0 +1,14 @@
+{
+  "static": true,
+  "exported_at": "2026-09-27T12:52:50+00:00",
+  "basin": "magat",
+  "cycles": [
+    "2026092708"
+  ],
+  "latest_cycle": "2026092708",
+  "themes": [
+    "light",
+    "dark"
+  ],
+  "notice": "This page is a frozen copy of the operational dashboard and does not update. The forecasts shown were current when it was exported and must not be used operationally."
+}

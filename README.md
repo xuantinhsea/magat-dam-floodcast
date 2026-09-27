@@ -1,53 +1,56 @@
-# Magat Dam FloodCast — dashboard
+# Magat Dam FloodCast — dashboard snapshot
 
-Web dashboard for an automated flood-forecasting system for the **Magat River
-basin above Magat Dam** (Luzon, Philippines), built on the ICHARM
-Rainfall–Runoff–Inundation (RRI) model.
+**Live page:** https://magat-dam-floodcast.vercel.app
+(also GitHub Pages: https://xuantinhsea.github.io/magat-dam-floodcast/ once enabled — see below)
 
-This repository holds the **browser interface only** — static HTML, CSS and
-JavaScript. The forecasts themselves (rainfall ingest, the RRI model runs,
-warning levels) come from a separate backend API that is not part of this
-repository.
+A static snapshot of the operator dashboard of an automated flood-forecasting
+system for the **Magat River basin above Magat Dam** (Luzon, Philippines),
+built on the ICHARM Rainfall–Runoff–Inundation (RRI) model.
 
-> **Not an official warning service.** This is a computer forecast and a
-> development interface. Always follow instructions from your LGU, PAGASA and
-> local disaster-risk-reduction office.
+> **Archived snapshot — not a live warning service.** The page is a frozen copy
+> of the operational dashboard. The forecasts it shows were current when it was
+> exported and must not be used operationally. For current conditions, follow
+> PAGASA and your LGU.
 
-## Pages
+## What is in it
 
-| Page | For | Shows |
-|---|---|---|
-| `index.html` | duty forecasters | map with depth / rainfall layers, per-station warning cards, outlook matrix, discharge and water-level forecasts, a rainfall–discharge timeline |
-| `public.html` | residents | one plain-language status, what to do, and where |
+The forecasts are real model runs: Open-Meteo forecast rainfall driving RRI,
+post-processed into discharge, water level, flood depth and warning levels. No
+observed river data is connected yet, and six of the seven stations use
+provisional warning thresholds; both are stated on the page.
 
-## Current status: not connected
+| Page | Shows |
+|---|---|
+| `index.html` | one-window operator view: map with depth / peak depth / rainfall / accumulated-rain layers, station warning cards and outlook matrix, discharge and water-level forecasts, and a timeline band — click any hour on it to read rain, discharge and water level there |
+| `public.html` | the plain-language public page, marked as an archived snapshot |
 
-`config.js` sets `apiBase: null`, so both pages load but show **no forecast**:
-the dashboard says it is not connected to a forecast service, and the public
-page shows **Status unavailable — do not treat this as an all-clear**. Neither
-page ever shows a green "normal" status without data behind it.
+## Layout
 
-## Connecting it to a forecast API
+```
+docs/                 the published site
+  index.html, app.js, style.css, public.*, api-url.js
+  config.js           mode: 'snapshot' — read data/ instead of a live API
+  data/               every API response the pages need, as static files
+  data/manifest.json  exported cycles, export time, the snapshot notice
+  .nojekyll           serve files as they are
+vercel.json           Vercel serves docs/ (redeploys on every push)
+```
 
-1. Run the backend so that its API is reachable over **HTTPS** (the page is
-   served over HTTPS, and browsers block plain-HTTP requests from it).
-2. Edit `config.js`:
+## Publishing
 
-   ```js
-   window.RRI_CONFIG = Object.assign({ apiBase: 'https://your-api.example.org' }, window.RRI_CONFIG || {});
-   ```
+- **Vercel** redeploys automatically on every push to `main`.
+- **GitHub Pages** (one-time): Settings → Pages → *Build and deployment* →
+  Source: **Deploy from a branch**, Branch: **main**, folder **/docs** → Save.
+  After that every push publishes there too.
 
-3. Commit and push; Vercel redeploys automatically. `config.js` is served
-   uncached, so open pages pick up the change on their next reload.
+## Updating the snapshot
 
-## Deployment
+`docs/` is generated, not edited. On the machine that runs the forecasting
+pipeline (its API at `http://localhost:8000`):
 
-Deployed on Vercel as a static site — no build step. `vercel.json` sets
-`config.js` to no-cache and forbids framing the pages (a warning page must not
-be embeddable in someone else's site).
-
-## Where these files come from
-
-They are generated from the main RRI warning-system codebase by its
-`scripts/stage_vercel.py --out <this repo>`. Edit them there, not here, or
-the next update will overwrite the change.
+```bash
+# in the RRI warning-system repo
+make export-static        # = python scripts/export_static.py --out ../magat-dam-floodcast/docs
+cd ../magat-dam-floodcast
+git add -A && git commit -m "Update snapshot" && git push
+```
