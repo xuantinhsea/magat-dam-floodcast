@@ -16,8 +16,9 @@ built on the ICHARM Rainfall–Runoff–Inundation (RRI) model.
 
 The forecasts are real model runs: Open-Meteo forecast rainfall driving RRI,
 post-processed into discharge, water level, flood depth and warning levels. No
-observed river data is connected yet, and six of the seven stations use
-provisional warning thresholds; both are stated on the page.
+observed river data is connected yet, and seven of the eight stations (Magat
+Dam, Magat Inflow and six bridges) use provisional warning thresholds; both are
+stated on the Caution sign beside the basin and on each station.
 
 | Page | Shows |
 |---|---|

@@ -36,18 +36,13 @@
 </header>
 
 <!-- Stale and error notices outrank everything: an operator must never read an
-     old forecast as the current one. -->
+     old forecast as the current one. The standing caveats (archived snapshot,
+     provisional thresholds) are on the warning sign beside the basin instead. -->
 <div class="notices">
-  <div id="snapshot-banner" class="banner banner-snapshot" role="note" hidden></div>
   <div id="stale-banner" class="banner banner-error" role="alert" hidden></div>
   <div id="old-cycle-banner" class="banner banner-info" hidden>
     <span id="old-cycle-text"></span>
     <button id="goto-latest" class="btn btn-sm" type="button">Go to latest</button>
-  </div>
-  <div id="provisional-banner" class="banner banner-clamp" hidden tabindex="0"
-       title="Click to show or hide the full text">
-    <strong>Provisional thresholds.</strong>
-    <span id="provisional-basis"></span>
   </div>
   <div id="error-banner" class="banner banner-error" hidden></div>
 </div>
@@ -145,6 +140,7 @@
 
       <dl class="facts" id="station-facts"></dl>
       <p class="muted small chart-caption" id="station-basis"></p>
+      <p class="small chart-caption station-note" id="station-note" hidden></p>
 
       <div class="chart-opts">
         <label><input type="checkbox" id="show-rain" checked> Catchment rain</label>

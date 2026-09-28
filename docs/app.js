@@ -123,6 +123,7 @@ const state = {
   charts: { q: null, h: null, evo: null },
   map: null, overlay: null, markers: null, labels: null, landmarks: null,
   markerById: {}, outline: null, rivers: null, layerControl: null,
+  sign: null, signHtml: null, signH: 0,  // the caveat sign beside the basin
 };
 
 /* ------------------------------------------------------------------ util -- */
@@ -410,12 +411,6 @@ function renderBasinHeader() {
     `RRI ${b.model_version} · ${b.grid.ncols}×${b.grid.nrows} @ ${(b.grid.cellsize * 111).toFixed(2)} km`
     + ` · cycles ${b.cycles_utc.map((h) => `${pad(h)}Z`).join('/')}`;
 
-  if (b.thresholds_provisional) {
-    $('provisional-banner').hidden = false;
-    $('provisional-basis').textContent = b.thresholds_basis ||
-      'Warning thresholds are not validated against an adequate observed record.';
-  }
-
   const ss = $('station-select');
   ss.innerHTML = '';
   for (const s of b.stations) ss.add(new Option(`${shortId(s.id)} — ${s.name || s.id}`, s.id));
@@ -565,10 +560,12 @@ function renderClock() {
   const limit = 2 * cycleIntervalHours();
 
   const stale = $('stale-banner');
+  // Re-rendered here so the export time follows the PHT/UTC switch.
+  renderNoticeSign();
   if (RRI.snapshot) {
-    // A snapshot is old by design; say what it is instead of blaming a pipeline.
+    // A snapshot is old by design; the sign says what it is instead of
+    // blaming a pipeline.
     stale.hidden = true;
-    renderSnapshotNotice();
   } else if (ageH > limit) {
     stale.hidden = false;
     stale.textContent =
@@ -595,20 +592,100 @@ function renderClock() {
   renderRunSummary();
 }
 
-/**
- * An exported snapshot says so on every view: it is a frozen copy, and a
- * forecast read from it is the forecast of the day it was exported, however
- * current the page may look.
- */
-function renderSnapshotNotice() {
-  const el = $('snapshot-banner');
-  const m = state.manifest;
-  el.hidden = false;
-  const exported = m?.exported_at ? fmtTime(Date.parse(m.exported_at), { zone: true }) : 'an earlier date';
-  const n = m?.cycles?.length || state.cycles.length;
-  el.innerHTML = `<strong>Archived snapshot.</strong> ${esc(m?.notice
-    || 'This page is a frozen copy of the operational dashboard and does not update.')}`
-    + ` Exported ${esc(exported)}, covering ${n} forecast cycle${n === 1 ? '' : 's'}.`;
+/* ----------------------------------------------------------- notice sign -- */
+
+/* The standing caveats stand on the map beside the basin, as a road-style
+ * warning sign, rather than as banners across the page: that this is an
+ * archived snapshot -- a frozen copy, however current it looks -- and that the
+ * warning levels are provisional. Operational alerts (stale data, an older
+ * cycle, errors) stay as banners: they are news, these are standing terms. */
+const SIGN_W = 260;       // px, expanded width (desktop)
+const SIGN_OVERHANG = 22; // px of the sign east of its post, over the basin edge
+
+function noticeItems() {
+  const items = [];
+  if (RRI.snapshot) {
+    const m = state.manifest;
+    const exported = m?.exported_at ? fmtTime(Date.parse(m.exported_at), { zone: true }) : 'an earlier date';
+    const n = m?.cycles?.length || state.cycles.length;
+    items.push({
+      title: 'Archived snapshot.',
+      text: `${m?.notice || 'This page is a frozen copy of the operational dashboard and does not update.'}`
+        + ` Exported ${exported}${n ? `, covering ${n} forecast cycle${n === 1 ? '' : 's'}` : ''}.`,
+    });
+  }
+  if (state.basin.thresholds_provisional) {
+    items.push({
+      title: 'Provisional thresholds.',
+      text: state.basin.thresholds_basis
+        || 'Warning thresholds are not validated against an adequate observed record.',
+    });
+  }
+  return items;
+}
+
+function renderNoticeSign() {
+  if (!state.map) return;
+  const items = noticeItems();
+  const body = items.map((i) => `<p><strong>${esc(i.title)}</strong> ${esc(i.text)}</p>`).join('');
+  if (body === state.signHtml) return;
+  state.signHtml = body;
+  if (state.sign) { state.sign.remove(); state.sign = null; }
+  if (!items.length) return;
+
+  const desk = window.matchMedia('(min-width: 961px)').matches;
+  const [w, s] = state.basin.bounds;
+  state.sign = L.marker([s, w], {
+    icon: L.divIcon({
+      className: 'notice-sign',
+      html: `<div class="sign" role="note" aria-label="Caution">`
+        + `<button class="sign-head" type="button" aria-expanded="true" aria-controls="sign-body">`
+        + '<svg class="sign-icon" viewBox="0 0 24 22" aria-hidden="true">'
+        + '<path d="M12 1 23.5 21H.5z"/><path class="sign-mark" d="M10.9 7.5h2.2l-.45 7h-1.3zM10.9 16h2.2v2.2h-2.2z"/></svg>'
+        + `<span class="sign-title">Caution</span><span class="sign-count">${items.length}</span></button>`
+        + `<div class="sign-body" id="sign-body">${body}</div></div>`
+        + '<span class="sign-post" aria-hidden="true"></span>',
+      iconSize: [0, 0], iconAnchor: [0, 0],
+    }),
+    interactive: false, keyboard: false, zIndexOffset: 1000,
+  }).addTo(state.map);
+
+  const el = state.sign.getElement();
+  L.DomEvent.disableClickPropagation(el);
+  L.DomEvent.disableScrollPropagation(el);
+  const sign = el.querySelector('.sign');
+  const head = el.querySelector('.sign-head');
+  if (desk) sign.style.width = `${SIGN_W}px`;
+  head.title = `${items.map((i) => i.title.replace(/\.$/, '')).join(' · ')} — click to fold or unfold`;
+  // Measured unfolded, so placement always leaves room to unfold it.
+  state.signH = sign.offsetHeight;
+  const fold = (folded) => {
+    sign.classList.toggle('is-folded', folded);
+    head.setAttribute('aria-expanded', String(!folded));
+  };
+  // Unfolded by default where there is room for it; folded on a phone, where
+  // the sign would cover the basin.
+  fold(pref.get('sign', desk ? 'open' : 'folded') === 'folded');
+  head.onclick = () => {
+    const folded = !sign.classList.contains('is-folded');
+    fold(folded);
+    pref.set('sign', folded ? 'folded' : 'open');
+  };
+  placeSign();
+}
+
+/* Plant the sign just west of the basin, a third of the way up it, and low
+ * enough that it clears the layer toolbar when unfolded. frame() leaves the
+ * room for it on a desktop; on a phone it leans over the basin instead. */
+function placeSign() {
+  if (!state.sign) return;
+  const [w, s, , n] = state.basin.bounds;
+  const sw = state.map.latLngToContainerPoint([s, w]);
+  const nw = state.map.latLngToContainerPoint([n, w]);
+  const desk = window.matchMedia('(min-width: 961px)').matches;
+  const minY = (desk ? 52 : 12) + state.signH + 34;
+  const y = Math.min(Math.max(sw.y - 0.35 * (sw.y - nw.y), minY), state.map.getSize().y - 8);
+  state.sign.setLatLng(state.map.containerPointToLatLng([sw.x, y]));
 }
 
 async function checkForNewCycle() {
@@ -924,17 +1001,25 @@ function initMap() {
   }, { collapsed: true, position: 'topright' }).addTo(state.map);
 
   // Frame the basin in the part of the map the panels leave uncovered, not
-  // under them. On a phone the panels are below the map, so no allowance.
+  // under them, with room west of it for the caveat sign. On a phone the
+  // panels are below the map, so no allowance.
   const frame = () => {
     state.map.invalidateSize();
     const desk = window.matchMedia('(min-width: 961px)').matches;
-    const l = desk ? $('rail-left').offsetWidth + 24 : 12;
+    const sign = desk && state.sign ? SIGN_W - SIGN_OVERHANG + 28 : 0;
+    const l = desk ? $('rail-left').offsetWidth + 24 + sign : 12;
     const r = desk ? $('rail-right').offsetWidth + 24 : 12;
+    // Not animated, so the sign is placed against the final view.
     state.map.fitBounds([[s, w], [n, e]], {
-      paddingTopLeft: [l, desk ? 52 : 12], paddingBottomRight: [r, desk ? 44 : 12],
+      paddingTopLeft: [l, desk ? 52 : 12], paddingBottomRight: [r, desk ? 44 : 12], animate: false,
     });
+    placeSign();
   };
   state.frameMap = frame;
+  frame();
+  // Markers only attach once the map has a view; then frame again, now
+  // leaving room for the sign.
+  renderNoticeSign();
   frame();
   // Re-frame once layout has settled and on resize: fitBounds before the grid
   // has sized #map picks a zoom for the wrong container and shows half of Luzon.
@@ -1040,14 +1125,22 @@ function buildMarkers() {
     m.addTo(state.markers);
     state.markerById[s.id] = m;
 
+    // A label goes west of its station when another station sits just east of
+    // it (Aritao / Mangayang, Inflow / Dam), where it would cover that marker.
+    const west = labelWest(s);
     L.marker([s.lat, s.lon], {
       icon: L.divIcon({
-        className: 'stn-label', html: `<span>${esc(shortId(s.id))}</span>`,
-        iconSize: null, iconAnchor: [-11, 7],
+        className: `stn-label${west ? ' is-west' : ''}`, html: `<span>${esc(shortId(s.id))}</span>`,
+        iconSize: null, iconAnchor: west ? [0, 7] : [-11, 7],
       }),
       interactive: false, keyboard: false,
     }).addTo(state.labels);
   }
+}
+
+function labelWest(s) {
+  return state.basin.stations.some((o) => o !== s && o.lon > s.lon
+    && o.lon - s.lon < 0.045 && Math.abs(o.lat - s.lat) < 0.02);
 }
 
 /**
@@ -1778,12 +1871,6 @@ function initRails() {
   setTab(pref.get('rail-tab', 'cards') === 'outlook' ? 'outlook' : 'cards');
   if (pref.get('rail-left', '1') === '0') setRail('left', false);
   if (pref.get('rail-right', '1') === '0') setRail('right', false);
-
-  // The provisional notice is one line; the full basis is a click away.
-  const prov = $('provisional-banner');
-  const toggle = () => prov.classList.toggle('is-open');
-  prov.onclick = toggle;
-  prov.onkeydown = (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); toggle(); } };
 }
 
 async function cachedSeries(kind, sid, cycleId) {
@@ -1864,6 +1951,7 @@ function renderStationCharts({ discharge, stage, rain, showRain = true, obs, pre
   const sid = state.stationId;
   const th = thFor(sid);
   const w = warnFor(sid);
+  renderStationNote(sid);
 
   if (!discharge || !discharge.values.length) {
     $('chart-note').textContent = 'No discharge series for this cycle.';
@@ -1909,9 +1997,11 @@ function renderStationCharts({ discharge, stage, rain, showRain = true, obs, pre
   // RRI's diffusion-wave routing admits brief backwater (small negative Q).
   // Left alone, one -14 m3/s step drags the axis a whole tick (-2,000) below
   // zero and squashes the hydrograph; pin the axis at 0 when reverse flow is
-  // trivial, and say so in the note. Larger reverse flow keeps its full axis.
+  // small beside the peak, and say so in the note. 5%: San Lorenzo, just above
+  // a model junction, backs up by -70 m3/s against a 2,643 m3/s peak. Larger
+  // reverse flow keeps its full axis.
   const fcMin = Math.min(...fc.values());
-  const pinZero = fcMin >= -0.02 * Math.max(dataMax, 1);
+  const pinZero = fcMin >= -0.05 * Math.max(dataMax, 1);
 
   const datasets = [{
     label: 'Forecast',
@@ -2011,6 +2101,16 @@ function renderFacts(discharge, rain, th, w) {
   }
   $('station-facts').innerHTML = items
     .map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join('');
+}
+
+/* What a reader must know to use this station's numbers at all -- e.g. that
+ * the model reports it from a cell away from the gauge -- from the basin
+ * config, shown with the forecast rather than only in a file. */
+function renderStationNote(sid) {
+  const note = state.stationMeta[sid]?.note || '';
+  const el = $('station-note');
+  el.textContent = note;
+  el.hidden = !note;
 }
 
 /* How much to trust THIS station's levels, stated where the levels are shown.

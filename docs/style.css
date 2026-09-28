@@ -188,22 +188,6 @@ select, .btn {
   background: color-mix(in srgb, var(--accent) 10%, var(--surface));
   border-bottom-color: color-mix(in srgb, var(--accent) 30%, var(--border));
 }
-/* Archived-snapshot notice: neutral, and first, so a frozen copy can never be
-   mistaken for the live screen. */
-.banner-snapshot {
-  background: repeating-linear-gradient(135deg,
-    color-mix(in srgb, var(--text-muted) 10%, var(--surface)) 0 10px,
-    color-mix(in srgb, var(--text-muted) 16%, var(--surface)) 10px 20px);
-  border-bottom-color: color-mix(in srgb, var(--text-muted) 35%, var(--border));
-}
-
-/* Long standing notices take one line; the full text is a click away. The
-   bold lead ("Provisional thresholds.") always shows. */
-.banner-clamp {
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer;
-}
-.banner-clamp.is-open { white-space: normal; }
-
 .toast {
   position: fixed; right: 16px; bottom: 16px; z-index: 2000;
   display: flex; align-items: center; gap: 10px;
@@ -384,6 +368,7 @@ select, .btn {
 }
 
 .stn-label { background: none; border: 0; }
+.stn-label.is-west span { transform: translateX(calc(-100% - 11px)); }
 .stn-label span {
   display: inline-block; white-space: nowrap;
   font: 700 9.5px/1 system-ui, sans-serif; color: #111;
@@ -642,6 +627,75 @@ select, .btn {
   box-shadow: 0 0 0 1px rgb(255 255 255 / 70%);
 }
 
+/* ----------------------------------------------------------- notice sign -- */
+
+/* The standing caveats as a road-style warning sign on a post, planted just
+   west of the basin (app.js placeSign). Sign yellow with a black rim in both
+   themes -- it is a sign, not a themed panel -- and it always carries words,
+   so it never reads as a Watch level on its own. The marker element is 0x0 at
+   the post's foot; the board is positioned from there. */
+.notice-sign { background: none; border: 0; }
+.notice-sign .sign {
+  position: absolute; right: -22px; bottom: 30px;
+  width: min(260px, calc(100vw - 48px));
+  background: #ffd21f; color: #16181b;
+  border: 2px solid #16181b; border-radius: 7px;
+  box-shadow: inset 0 0 0 2px #ffd21f, inset 0 0 0 3.5px #16181b, 0 6px 18px rgb(0 0 0 / 30%);
+  font: 11.5px/1.42 system-ui, -apple-system, 'Segoe UI', sans-serif;
+  text-align: left; cursor: auto; pointer-events: auto;
+}
+.notice-sign .sign-head {
+  display: flex; align-items: center; gap: 7px; width: 100%;
+  padding: 8px 11px 5px; margin: 0;
+  background: none; border: 0; color: inherit; font: inherit; cursor: pointer;
+}
+.notice-sign .sign-head:focus-visible { outline: 2px solid #16181b; outline-offset: -5px; border-radius: 5px; }
+.notice-sign .sign-icon { width: 22px; height: 20px; flex: none; }
+.notice-sign .sign-icon path { fill: #16181b; }
+.notice-sign .sign-icon .sign-mark { fill: #ffd21f; }
+.notice-sign .sign-title { font-weight: 800; font-size: 12.5px; letter-spacing: 0.1em; text-transform: uppercase; }
+.notice-sign .sign-count {
+  display: none;
+  min-width: 17px; padding: 0 5px; border-radius: 999px;
+  background: #16181b; color: #ffd21f; font-weight: 700; font-size: 10.5px; line-height: 17px; text-align: center;
+}
+/* A small chevron that turns when folded. */
+.notice-sign .sign-head::after {
+  content: ''; margin-left: auto; width: 7px; height: 7px;
+  border-right: 2px solid #16181b; border-bottom: 2px solid #16181b;
+  transform: translateY(-2px) rotate(45deg);
+}
+.notice-sign .sign-body { padding: 0 12px 10px; }
+.notice-sign .sign-body p { margin: 0; }
+.notice-sign .sign-body p + p { margin-top: 7px; padding-top: 7px; border-top: 1px solid rgb(22 24 27 / 35%); }
+.notice-sign .sign.is-folded { width: auto; }
+.notice-sign .sign.is-folded .sign-head { padding-bottom: 7px; }
+.notice-sign .sign.is-folded .sign-body { display: none; }
+.notice-sign .sign.is-folded .sign-count { display: inline-block; }
+.notice-sign .sign.is-folded .sign-head::after { transform: translateX(-2px) rotate(-45deg); }
+.notice-sign .sign-post {
+  position: absolute; left: -2px; bottom: 0; width: 4px; height: 32px;
+  background: linear-gradient(90deg, #4d5560, #aab3bd 45%, #4d5560);
+  border-radius: 1px; pointer-events: none;
+}
+.notice-sign .sign-post::after {
+  content: ''; position: absolute; left: -5px; bottom: -3px; width: 14px; height: 6px;
+  border-radius: 50%; background: rgb(0 0 0 / 28%);
+}
+/* On a phone there is no room beside the basin: the sign leans east over it. */
+@media (max-width: 960px) {
+  .notice-sign .sign { right: auto; left: -8px; }
+}
+
+/* A station whose model cell is not where its gauge is says so under its
+   facts, before anyone reads a number off the chart. */
+.station-note {
+  margin: 6px 12px 0; padding: 5px 8px;
+  border-left: 3px solid var(--watch);
+  background: color-mix(in srgb, var(--watch) 10%, var(--surface));
+  color: var(--text); line-height: 1.4;
+}
+
 
 /* ---------------------------------------------------------- map popups -- */
 
@@ -752,7 +806,7 @@ select, .btn {
   .cycle-picker select, .map-toolbar, .band-controls, .chart-opts, .detail-top,
   .rail-toggle, .rail-tabs, .toast, .leaflet-control-container, .kbd-hint,
   #old-cycle-banner .btn { display: none !important; }
-  .banner-clamp { white-space: normal; }
+  .notice-sign .sign.is-folded .sign-body { display: block; }
   .ops .leaflet-top.leaflet-left, .ops .leaflet-top.leaflet-right,
   .ops .leaflet-bottom.leaflet-right, .ops .leaflet-bottom.leaflet-left { margin: 0; }
 }
