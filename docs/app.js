@@ -123,7 +123,7 @@ const state = {
   charts: { q: null, h: null, evo: null },
   map: null, overlay: null, markers: null, labels: null, landmarks: null,
   markerById: {}, outline: null, rivers: null, layerControl: null,
-  sign: null, signHtml: null, signH: 0,  // the caveat sign beside the basin
+  sign: null, signHtml: null,  // the caveat sign beside the basin
 };
 
 /* ------------------------------------------------------------------ util -- */
@@ -594,13 +594,14 @@ function renderClock() {
 
 /* ----------------------------------------------------------- notice sign -- */
 
-/* The standing caveats stand on the map beside the basin, as a road-style
- * warning sign, rather than as banners across the page: that this is an
- * archived snapshot -- a frozen copy, however current it looks -- and that the
- * warning levels are provisional. Operational alerts (stale data, an older
- * cycle, errors) stay as banners: they are news, these are standing terms. */
-const SIGN_W = 260;       // px, expanded width (desktop)
-const SIGN_OVERHANG = 22; // px of the sign east of its post, over the basin edge
+/* The standing caveats -- that this is an archived snapshot (a frozen copy,
+ * however current it looks) and that the warning levels are provisional --
+ * sit behind a small road-style warning sign planted beside the basin, not in
+ * banners across the page: hover names them, a click or Enter opens them.
+ * Operational alerts (stale data, an older cycle, errors) stay as banners:
+ * they are news, these are standing terms. */
+const SIGN_ROOM = 20;  // px frame() leaves west of the basin for the sign
+const SIGN_H = 50;     // px, triangle plus post; the marker's foot is the anchor
 
 function noticeItems() {
   const items = [];
@@ -633,57 +634,34 @@ function renderNoticeSign() {
   if (state.sign) { state.sign.remove(); state.sign = null; }
   if (!items.length) return;
 
-  const desk = window.matchMedia('(min-width: 961px)').matches;
   const [w, s] = state.basin.bounds;
+  const names = items.map((i) => i.title.replace(/\.$/, '').toLowerCase()).join(' and ');
   state.sign = L.marker([s, w], {
     icon: L.divIcon({
       className: 'notice-sign',
-      html: `<div class="sign" role="note" aria-label="Caution">`
-        + `<button class="sign-head" type="button" aria-expanded="true" aria-controls="sign-body">`
-        + '<svg class="sign-icon" viewBox="0 0 24 22" aria-hidden="true">'
-        + '<path d="M12 1 23.5 21H.5z"/><path class="sign-mark" d="M10.9 7.5h2.2l-.45 7h-1.3zM10.9 16h2.2v2.2h-2.2z"/></svg>'
-        + `<span class="sign-title">Caution</span><span class="sign-count">${items.length}</span></button>`
-        + `<div class="sign-body" id="sign-body">${body}</div></div>`
+      html: '<svg class="sign-icon" viewBox="0 0 28 25" aria-hidden="true">'
+        + '<path class="sign-plate" d="M14 1.8 26.4 23.2H1.6z"/>'
+        + '<path class="sign-mark" d="M12.8 8.4h2.4l-.5 7.8h-1.4zM12.8 17.8h2.4v2.4h-2.4z"/></svg>'
         + '<span class="sign-post" aria-hidden="true"></span>',
-      iconSize: [0, 0], iconAnchor: [0, 0],
+      iconSize: [28, SIGN_H], iconAnchor: [14, SIGN_H], popupAnchor: [0, -SIGN_H + 4],
     }),
-    interactive: false, keyboard: false, zIndexOffset: 1000,
+    title: `Caution: ${names} — click for details`,
+    alt: 'Caution', keyboard: true, riseOnHover: true, zIndexOffset: 1000,
+  }).bindPopup(`<div class="sign-pop"><p class="sign-pop-head">Caution</p>${body}</div>`, {
+    className: 'sign-popup', minWidth: 240, maxWidth: 290,
   }).addTo(state.map);
-
-  const el = state.sign.getElement();
-  L.DomEvent.disableClickPropagation(el);
-  L.DomEvent.disableScrollPropagation(el);
-  const sign = el.querySelector('.sign');
-  const head = el.querySelector('.sign-head');
-  if (desk) sign.style.width = `${SIGN_W}px`;
-  head.title = `${items.map((i) => i.title.replace(/\.$/, '')).join(' · ')} — click to fold or unfold`;
-  // Measured unfolded, so placement always leaves room to unfold it.
-  state.signH = sign.offsetHeight;
-  const fold = (folded) => {
-    sign.classList.toggle('is-folded', folded);
-    head.setAttribute('aria-expanded', String(!folded));
-  };
-  // Unfolded by default where there is room for it; folded on a phone, where
-  // the sign would cover the basin.
-  fold(pref.get('sign', desk ? 'open' : 'folded') === 'folded');
-  head.onclick = () => {
-    const folded = !sign.classList.contains('is-folded');
-    fold(folded);
-    pref.set('sign', folded ? 'folded' : 'open');
-  };
   placeSign();
 }
 
-/* Plant the sign just west of the basin, a third of the way up it, and low
- * enough that it clears the layer toolbar when unfolded. frame() leaves the
- * room for it on a desktop; on a phone it leans over the basin instead. */
+/* Plant the sign just west of the basin, a third of the way up it and below
+ * the layer toolbar. frame() leaves room for it on a desktop. */
 function placeSign() {
   if (!state.sign) return;
   const [w, s, , n] = state.basin.bounds;
   const sw = state.map.latLngToContainerPoint([s, w]);
   const nw = state.map.latLngToContainerPoint([n, w]);
   const desk = window.matchMedia('(min-width: 961px)').matches;
-  const minY = (desk ? 52 : 12) + state.signH + 34;
+  const minY = (desk ? 52 : 12) + SIGN_H + 6;
   const y = Math.min(Math.max(sw.y - 0.35 * (sw.y - nw.y), minY), state.map.getSize().y - 8);
   state.sign.setLatLng(state.map.containerPointToLatLng([sw.x, y]));
 }
@@ -1006,7 +984,7 @@ function initMap() {
   const frame = () => {
     state.map.invalidateSize();
     const desk = window.matchMedia('(min-width: 961px)').matches;
-    const sign = desk && state.sign ? SIGN_W - SIGN_OVERHANG + 28 : 0;
+    const sign = desk && state.sign ? SIGN_ROOM : 0;
     const l = desk ? $('rail-left').offsetWidth + 24 + sign : 12;
     const r = desk ? $('rail-right').offsetWidth + 24 : 12;
     // Not animated, so the sign is placed against the final view.
