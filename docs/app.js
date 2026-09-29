@@ -600,6 +600,8 @@ function renderClock() {
  * banners across the page: hover names them, a click or Enter opens them.
  * Operational alerts (stale data, an older cycle, errors) stay as banners:
  * they are news, these are standing terms. */
+// Hidden for now; `cautionSign: true` in config.js brings it back.
+const SIGN_ENABLED = (window.RRI_CONFIG || {}).cautionSign === true;
 const SIGN_ROOM = 20;  // px frame() leaves west of the basin for the sign
 const SIGN_H = 50;     // px, triangle plus post; the marker's foot is the anchor
 
@@ -626,7 +628,7 @@ function noticeItems() {
 }
 
 function renderNoticeSign() {
-  if (!state.map) return;
+  if (!state.map || !SIGN_ENABLED) return;
   const items = noticeItems();
   const body = items.map((i) => `<p><strong>${esc(i.title)}</strong> ${esc(i.text)}</p>`).join('');
   if (body === state.signHtml) return;
